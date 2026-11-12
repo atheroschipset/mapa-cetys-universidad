@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mapa CETYS 3D</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+/* Vista isométrica tipo diorama (cámara de RPG). Escena a pantalla completa con panel flotante abajo. */
+:root{
+  --panel:rgba(255,255,255,.95); --fg:#1b2420; --muted:#5b6a62; --line:#d4ddd7; --soft:#eef1ee;
+  --route:#ff6a1a; --accent:#1f6f8b; --me:#2f6fde; --ok:#1d8a4f;
+  --c-acad:#4a78cf; --c-serv:#1f9e80; --c-cult:#b8478f; --c-dep:#76962c; --c-park:#7a828f;
+  --f-display:"Barlow Condensed","Arial Narrow",sans-serif; --f-body:"Barlow",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+[hidden]{display:none!important}
+body{background:#bfe3f2;color:var(--fg);font-family:var(--f-body);font-size:15px;overflow:hidden}
+#stage{position:fixed;inset:0;touch-action:none}
+canvas{display:block}
+.top{position:fixed;top:0;left:0;right:0;padding-top:calc(env(safe-area-inset-top,0px) + 10px);padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));display:flex;justify-content:space-between;align-items:flex-start;gap:10px;pointer-events:none}
+.title{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:7px 12px;pointer-events:auto;display:grid;gap:2px;min-width:0}
+.title small{font-family:var(--f-display);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.title b{font-family:var(--f-display);font-size:20px;font-weight:700;line-height:1.05}
+.title a{font-size:13px;color:var(--accent);font-weight:600}
+.tag{margin-top:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;color:var(--muted);display:inline-block}
+.tag.live{color:var(--ok);font-weight:600}
+.tag.warn{color:var(--route);font-weight:600}
+.tools{display:flex;flex-direction:column;gap:6px;pointer-events:auto}
+.tools button{width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font-size:18px;font-weight:700;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.15)}
+button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bottom{position:fixed;left:0;right:0;bottom:0;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 10px);padding-left:max(10px,env(safe-area-inset-left,0px));padding-right:max(10px,env(safe-area-inset-right,0px));display:grid;gap:8px;justify-items:center;pointer-events:none}
+.card{width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 24px rgba(0,0,0,.18);pointer-events:auto}
+.nav{padding:10px 12px;display:grid;gap:8px;max-height:46vh;overflow-y:auto}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.lbl{font-family:var(--f-display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.here{display:flex;align-items:center;gap:8px;min-width:0}
+.here i{width:12px;height:12px;border-radius:50%;background:var(--me);box-shadow:0 0 0 4px color-mix(in srgb,var(--me) 25%,transparent);flex:none}
+.here strong{font-weight:600;min-width:0}
+select{font:inherit;font-size:16px;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--fg);flex:1;min-width:0}
+.btn{font:inherit;font-weight:600;font-size:14px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--soft);color:var(--fg);cursor:pointer}
+.btn.primary{background:var(--route);border-color:var(--route);color:#fff}
+.btn.on{background:var(--me);border-color:var(--me);color:#fff}
+.btn:disabled{opacity:.45;cursor:default}
+.sum{font-size:14px;color:var(--muted)} .sum b{font-family:var(--f-display);font-size:22px;color:var(--route);margin-right:6px}
+.sum.arrived b{color:var(--ok)}
+.msg{margin:0;font-size:12.5px;color:var(--muted);line-height:1.4}
+.msg b{color:var(--fg)}
+.calib{display:grid;gap:6px;border-top:1px dashed var(--line);padding-top:8px}
+/* tarjeta de edificio */
+.pop{overflow:hidden;display:grid;max-width:380px}
+.pop .photo{position:relative;aspect-ratio:16/9;max-width:100%;overflow:hidden}
+.pop .photo img{width:100%;height:100%;object-fit:cover;display:block}
+.pop .ph{position:absolute;inset:0;display:grid;place-items:center;align-content:center;gap:2px;text-align:center}
+.pop .ph .n{font-family:var(--f-display);font-size:44px;font-weight:700;line-height:1}
+.pop .ph small{font-size:12px;color:var(--muted)}
+.pop .close{position:absolute;top:8px;right:8px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:18px;cursor:pointer}
+.pop .body{padding:10px 14px 12px;display:grid;gap:6px}
+.pop .cat{font-family:var(--f-display);font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+.pop h2{margin:0;font-family:var(--f-display);font-size:21px;line-height:1.1}
+.noscript{position:fixed;inset:0;display:grid;place-items:center;padding:24px;text-align:center;background:#eef1ee}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div class="top">
+  <div>
+    <div class="title"><small>Campus Mexicali · 3D</small><b>Mapa CETYS Universidad</b><a href="./">Cambiar a vista 2D</a></div>
+    <span class="tag" id="tag">Simulación: toca el suelo para moverte</span>
+  </div>
+  <div class="tools">
+    <button id="rotL" aria-label="Girar cámara a la izquierda">⟲</button>
+    <button id="rotR" aria-label="Girar cámara a la derecha">⟳</button>
+    <button id="zin" aria-label="Acercar">+</button>
+    <button id="zout" aria-label="Alejar">−</button>
+    <button id="zme" aria-label="Centrar en mi ubicación">◎</button>
+  </div>
+</div>
+<div class="bottom">
+  <div class="card pop" id="pop" hidden>
+    <div class="photo" id="popPhoto">
+      <img id="popImg" alt="" hidden>
+      <div class="ph" id="popPh"><span class="n" id="popN"></span><small>Foto pendiente</small></div>
+      <button class="close" id="popClose" aria-label="Cerrar">×</button>
+    </div>
+    <div class="body">
+      <span class="cat" id="popCat"></span>
+      <h2 id="popName"></h2>
+      <div class="row"><button class="btn primary" id="popGo">Ir aquí</button><span class="msg" id="popDist"></span></div>
+    </div>
+  </div>
+  <div class="card nav">
+    <div class="row" style="justify-content:space-between"><div class="here"><i></i><span class="lbl">Estás en</span><strong id="here">—</strong></div></div>
+    <div class="row"><select id="dest" aria-label="Destino"></select><button class="btn primary" id="walk">Simular</button></div>
+    <div class="sum" id="sum"></div>
+    <div class="row"><button class="btn" id="gpsBtn">Usar mi GPS</button><button class="btn" id="calBtn">Calibrar mapa</button></div>
+    <p class="msg" id="gpsMsg">Toca un edificio para ver su foto. Gira con dos dedos o con los botones ⟲ ⟳.</p>
+    <div class="calib" id="calib" hidden>
+      <p class="msg" id="calMsg"></p>
+      <div class="row"><button class="btn primary" id="calMark">Marcar dónde estoy</button><button class="btn" id="calClear">Borrar puntos</button><button class="btn" id="calDone">Listo</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+if(!window.THREE){document.body.insertAdjacentHTML('beforeend','<div class="noscript"><p>No se pudo cargar el motor 3D. Revisa tu conexión o usa la <a href="./">vista 2D</a>.</p></div>')}
+// Plano trazado sobre la vista satelital (norte arriba). Coordenadas en píxeles de la captura × 1.25.
+// Escala sacada del campo de fútbol americano (109.7 m entre fondos de zonas de anotación).
+let M = 0.62;             // metros por unidad del plano (se ajusta al calibrar)
+const W = 1000, H = 860, CELL = 5, K = 1.25;
+const CATNAME={acad:'Académico',serv:'Servicios',cult:'Cultura',dep:'Deporte',park:'Estacionamiento'};
+// [núm, nombre, etiqueta, tipo, x1,y1,x2,y2, pequeño]
+const RAW = [ // coordenadas en píxeles de la captura satelital
+  [1,'Dirección General',['Dirección','General'],'serv',182,462,215,492],
+  [2,'CASE',['CASE'],'serv',238,458,265,484,1],
+  [3,'Cafetería',['Cafetería'],'serv',240,412,295,440],
+  [4,'Sorteos',['Sorteos'],'serv',168,388,198,408,1],
+  [5,'Seguridad',['Seguridad'],'serv',208,404,234,424,1],
+  [6,'Mantenimiento',['Mantenimiento'],'serv',222,366,250,388,1],
+  [7,'Oficinas Administrativas',['Oficinas Adm.'],'serv',272,368,300,392,1],
+  [8,'Biblioteca',['Biblioteca'],'acad',305,366,360,440],
+  [9,'Enfermería y Escolar',['Enfermería y Escolar'],'serv',364,364,397,440,1],
+  [10,'Auditorio',['Auditorio'],'cult',328,492,378,530],
+  [11,'CECE',['CECE'],'acad',386,518,460,575],
+  [12,'Edificio de Licenciatura',['Licenciatura'],'acad',485,525,522,598],
+  [13,'Servicios Estudiantiles y Comunicación',['Serv. Estudiantiles'],'serv',402,372,428,438,1],
+  [14,'Operación Académica y Dirección Académica',['Op. Académica'],'serv',440,398,474,425,1],
+  [15,'Laboratorios de Ingeniería y CAOP',['Labs. Ingeniería'],'acad',448,360,512,390,1],
+  [16,'Edificio Tita y Armando Gallego',['Tita y A. Gallego'],'acad',465,442,500,468,1],
+  [17,'Edificio Esposos Hermosillo',['Esp. Hermosillo'],'acad',482,402,520,428,1],
+  [18,'Edificio Kenworth',['Kenworth'],'acad',515,426,540,447,1],
+  [19,'Edificio Heriberto Amarillas Heras y Clara Durazo de Amarillas',['Amarillas'],'acad',522,456,556,478,1],
+  [20,'CEDENI',['CEDENI'],'acad',545,520,590,560],
+  [21,'CAT',['CAT'],'acad',572,468,640,500],
+  [22,'Educación Continua y Centro de Idiomas',['Idiomas'],'acad',745,540,785,588],
+  [23,'Preparatoria',['Preparatoria'],'acad',330,222,500,330],
+  [24,'Gimnasio',['Gimnasio'],'dep',60,145,135,200],
+  [25,'Estadio de los Zorros',['Estadio'],'dep',318,48,402,200],
+  [26,'CEID',['CEID'],'acad',592,292,690,455],
+  ['P1','Estacionamiento techado (Gimnasio)',['Est. techado'],'park',50,45,150,130],
+  ['P2','Estacionamiento Norte',['Est. Norte'],'park',170,45,265,145],
+  ['P3','Estacionamiento Gómez Morín',['Est. Gómez Morín'],'park',25,270,98,500],
+  ['P4','Estacionamiento Poniente',['Est. Poniente'],'park',166,320,212,505],
+  ['P5','Estacionamiento frente al Auditorio',['Est. Auditorio'],'park',300,560,495,662],
+  ['P6','Estacionamiento Calzada CETYS',['Est. Calzada'],'park',195,512,298,592],
+  ['P7','Estacionamiento Centro de Idiomas',['Est. Idiomas'],'park',640,592,788,664],
+  ['P8','Estacionamiento CEID',['Est. CEID'],'park',738,345,788,460]
+];
+const sc=v=>Math.round(v*K);
+const PLACES = RAW.map(r=>({num:r[0],id:String(r[0]),name:r[1],lines:r[2],cat:r[3],x1:sc(r[4]),y1:sc(r[5]),x2:sc(r[6]),y2:sc(r[7]),small:!!r[8]}));
+const byId = Object.fromEntries(PLACES.map(p=>[p.id,p]));
+const R4=(k,a,b,c,d)=>({k,x1:sc(a),y1:sc(b),x2:sc(c),y2:sc(d)});
+const FIELDS = [R4('soc',527,50,605,280),R4('soc',648,100,735,245),R4('base',212,182,312,288)];
+const OTHER = [R4('b',25,235,135,265),R4('b',103,275,135,350),R4('b',103,425,140,485),R4('b',220,290,300,332),R4('b',278,45,312,150)]; // edificios sin número en el mapa oficial
+// contorno del campus (pegado a Gómez Morín, la calle norte, el lado oriente y Calzada CETYS)
+const CAMPUS=[[22,38],[778,38],[786,668],[300,668],[22,520]].map(p=>[sc(p[0]),sc(p[1])]);
+function inPoly(x,y,poly){let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const[xi,yi]=poly[i],[xj,yj]=poly[j];if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)c=!c}return c}
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+// ---------- rejilla para calcular rutas ----------
+const COLS=W/CELL|0, ROWS=H/CELL|0, blocked=new Uint8Array(COLS*ROWS);
+const obst=[...PLACES.filter(p=>p.cat!=='park'),...FIELDS,...OTHER];
+for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+  const x=c*CELL+CELL/2,y=r*CELL+CELL/2;
+  let b = !inPoly(x,y,CAMPUS);
+  if(!b) b = obst.some(o=>x>o.x1-2&&x<o.x2+2&&y>o.y1-2&&y<o.y2+2);
+  blocked[r*COLS+c]=b?1:0;
+}
+const cellOf=(x,y)=>[Math.max(0,Math.min(COLS-1,x/CELL|0)),Math.max(0,Math.min(ROWS-1,y/CELL|0))];
+const ctr=(c,r)=>[c*CELL+CELL/2,r*CELL+CELL/2];
+const rectDist=(x,y,p)=>Math.hypot(Math.max(p.x1-x,0,x-p.x2),Math.max(p.y1-y,0,y-p.y2));
+function nearestFree(c,r){
+  if(!blocked[r*COLS+c])return [c,r];
+  for(let d=1;d<60;d++)for(let dc=-d;dc<=d;dc++)for(let dr=-d;dr<=d;dr++){
+    if(Math.max(Math.abs(dc),Math.abs(dr))!==d)continue;
+    const cc=c+dc,rr=r+dr; if(cc>=0&&rr>=0&&cc<COLS&&rr<ROWS&&!blocked[rr*COLS+cc])return [cc,rr];
+  }
+  return [c,r];
+}
+function lineFree(a,b){
+  const n=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/2);
+  for(let i=1;i<n;i++){const x=a[0]+(b[0]-a[0])*i/n,y=a[1]+(b[1]-a[1])*i/n,[c,r]=cellOf(x,y);if(blocked[r*COLS+c])return false}
+  return true;
+}
+function findRoute(pt,place){
+  const [sc,sr]=nearestFree(...cellOf(pt[0],pt[1])), start=sr*COLS+sc;
+  const goalOK=i=>{const[x,y]=ctr(i%COLS,i/COLS|0);return rectDist(x,y,place)<=9};
+  const hfun=i=>{const[x,y]=ctr(i%COLS,i/COLS|0);return Math.max(0,rectDist(x,y,place)-9)};
+  const g=new Float32Array(COLS*ROWS).fill(Infinity), prev=new Int32Array(COLS*ROWS).fill(-1), closed=new Uint8Array(COLS*ROWS);
+  const heap=[]; const push=(i,f)=>{heap.push([f,i]);let k=heap.length-1;while(k){const p=(k-1)>>1;if(heap[p][0]<=heap[k][0])break;[heap[p],heap[k]]=[heap[k],heap[p]];k=p}};
+  const pop=()=>{const top=heap[0],last=heap.pop();if(heap.length){heap[0]=last;let k=0;for(;;){const l=2*k+1,r=l+1;let m=k;if(l<heap.length&&heap[l][0]<heap[m][0])m=l;if(r<heap.length&&heap[r][0]<heap[m][0])m=r;if(m===k)break;[heap[m],heap[k]]=[heap[k],heap[m]];k=m}}return top};
+  g[start]=0; push(start,hfun(start)); let goal=-1;
+  while(heap.length){
+    const [,i]=pop(); if(closed[i])continue; closed[i]=1;
+    if(goalOK(i)){goal=i;break}
+    const c=i%COLS,r=i/COLS|0;
+    for(let dc=-1;dc<=1;dc++)for(let dr=-1;dr<=1;dr++){
+      if(!dc&&!dr)continue; const cc=c+dc,rr=r+dr; if(cc<0||rr<0||cc>=COLS||rr>=ROWS)continue;
+      const j=rr*COLS+cc; if(blocked[j]||closed[j])continue;
+      if(dc&&dr&&(blocked[r*COLS+cc]||blocked[rr*COLS+c]))continue;
+      const ng=g[i]+(dc&&dr?1.4142:1)*CELL;
+      if(ng<g[j]){g[j]=ng;prev[j]=i;push(j,ng+hfun(j))}
+    }
+  }
+  if(goal<0)return null;
+  const raw=[]; for(let i=goal;i!==-1;i=prev[i])raw.unshift(ctr(i%COLS,i/COLS|0));
+  const sm=[raw[0]]; let k=0;
+  while(k<raw.length-1){let j=raw.length-1;while(j>k+1&&!lineFree(raw[k],raw[j]))j--;sm.push(raw[j]);k=j}
+  const path=[pt,...sm]; let len=0; for(let i=1;i<path.length;i++)len+=Math.hypot(path[i][0]-path[i-1][0],path[i][1]-path[i-1][1]);
+  return {path,meters:len*M,end:sm[sm.length-1]};
+}
+function whereAmI(pt){
+  const inside=PLACES.find(p=>pt[0]>=p.x1&&pt[0]<=p.x2&&pt[1]>=p.y1&&pt[1]<=p.y2);
+  if(inside)return {text:inside.name,place:inside};
+  let n=PLACES[0],bd=Infinity; PLACES.forEach(p=>{const d=rectDist(pt[0],pt[1],p);if(d<bd){bd=d;n=p}});
+  return {text:'Cerca de '+n.name,place:null,near:n,dist:bd};
+}
+
+
+let calib=store.get('cetys-calib')||[], xf=null;
+function toLocal(lat,lng){const o=calib[0]||{lat,lng};return [(lng-o.lng)*Math.cos(o.lat*Math.PI/180)*111320,(lat-o.lat)*110540]}
+function solve3(A,b){ // eliminación gaussiana 3x3
+  const m=A.map((r,i)=>[...r,b[i]]);
+  for(let c=0;c<3;c++){let p=c;for(let r=c+1;r<3;r++)if(Math.abs(m[r][c])>Math.abs(m[p][c]))p=r;[m[c],m[p]]=[m[p],m[c]];if(Math.abs(m[c][c])<1e-12)return null;
+    for(let r=0;r<3;r++)if(r!==c){const f=m[r][c]/m[c][c];for(let k=c;k<4;k++)m[r][k]-=f*m[c][k]}}
+  return [m[0][3]/m[0][0],m[1][3]/m[1][1],m[2][3]/m[2][2]];
+}
+function buildXf(){
+  xf=null; if(calib.length<2)return;
+  const P=calib.map(c=>({g:toLocal(c.lat,c.lng),x:c.x,y:c.y}));
+  if(P.length===2){
+    // similitud con números complejos: z_plano = a*z_geo + b, con y del plano hacia abajo
+    const g1=[P[0].g[0],-P[0].g[1]],g2=[P[1].g[0],-P[1].g[1]];
+    const dg=[g2[0]-g1[0],g2[1]-g1[1]],dm=[P[1].x-P[0].x,P[1].y-P[0].y],den=dg[0]**2+dg[1]**2;
+    if(den<25)return; // puntos demasiado juntos (<5 m)
+    const a=[(dm[0]*dg[0]+dm[1]*dg[1])/den,(dm[1]*dg[0]-dm[0]*dg[1])/den];
+    const b=[P[0].x-(a[0]*g1[0]-a[1]*g1[1]),P[0].y-(a[0]*g1[1]+a[1]*g1[0])];
+    xf=(e,n)=>{const gx=e,gy=-n;return [a[0]*gx-a[1]*gy+b[0],a[0]*gy+a[1]*gx+b[1]]};
+    M=1/Math.hypot(a[0],a[1]);
+  } else {
+    const A=[[0,0,0],[0,0,0],[0,0,0]],bx=[0,0,0],by=[0,0,0];
+    P.forEach(p=>{const v=[p.g[0],p.g[1],1];for(let i=0;i<3;i++){for(let j=0;j<3;j++)A[i][j]+=v[i]*v[j];bx[i]+=v[i]*p.x;by[i]+=v[i]*p.y}});
+    const cx=solve3(A,bx),cy=solve3(A,by); if(!cx||!cy)return;
+    xf=(e,n)=>[cx[0]*e+cx[1]*n+cx[2],cy[0]*e+cy[1]*n+cy[2]];
+    M=1/Math.sqrt(Math.abs(cx[0]*cy[1]-cx[1]*cy[0]));
+  }
+}
+
+
+// ---------- escena 3D ----------
+const CATCOL={acad:'#4a78cf',serv:'#1f9e80',cult:'#b8478f',dep:'#76962c',park:'#7a828f'};
+const HEIGHT={1:18,2:10,3:12,4:8,5:8,6:8,7:10,8:18,9:12,10:20,11:26,12:24,13:10,14:10,15:12,16:12,17:12,18:12,19:12,20:16,21:20,22:14,23:9,24:22,26:26}; // unidades (1 u ≈ 0.62 m)
+const stage=document.getElementById('stage');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color('#bfe3f2');
+const CX=500,CZ=430,wx=x=>x-CX,wz=y=>y-CZ;
+const cam=new THREE.OrthographicCamera(-1,1,1,-1,-3000,5000);
+let zoom=2.2,yaw=Math.PI*0.75,yawTarget=yaw;const target=new THREE.Vector3(wx(438),0,wz(700));
+const ELEV=Math.atan(1/Math.SQRT2);
+function placeCam(){
+  const D=1500;cam.position.set(target.x+Math.cos(yaw)*Math.cos(ELEV)*D,Math.sin(ELEV)*D,target.z+Math.sin(yaw)*Math.cos(ELEV)*D);cam.lookAt(target);
+  const a=innerWidth/innerHeight,v=440/zoom;cam.left=-v*a;cam.right=v*a;cam.top=v;cam.bottom=-v;cam.updateProjectionMatrix();
+}
+scene.add(new THREE.HemisphereLight('#ffffff','#7a8a6a',0.78));
+const sun=new THREE.DirectionalLight('#fff4e0',0.82);sun.position.set(-350,600,-250);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-650,right:650,top:650,bottom:-650,near:1,far:2000});scene.add(sun);
+const MATS={};const mat=c=>MATS[c]||(MATS[c]=new THREE.MeshLambertMaterial({color:c}));
+function box(x1,y1,x2,y2,h,color,yb=0,shadow=true){const m=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.1,x2-x1),h,Math.max(.1,y2-y1)),typeof color==='string'?mat(color):color);m.position.set(wx((x1+x2)/2),yb+h/2,wz((y1+y2)/2));m.castShadow=shadow;m.receiveShadow=true;scene.add(m);return m}
+function flat(points,color,y){ // polígono plano a la altura y (coordenadas del plano)
+  const s=new THREE.Shape(points.map(([x,z])=>new THREE.Vector2(wx(x),-wz(z))));
+  const g=new THREE.ShapeGeometry(s);g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,mat(color));m.position.y=y;m.receiveShadow=true;scene.add(m);return m}
+function texMat(draw,w,h){const c=document.createElement('canvas');c.width=w;c.height=h;draw(c.getContext('2d'),w,h);const t=new THREE.CanvasTexture(c);t.anisotropy=4;return new THREE.MeshLambertMaterial({map:t})}
+function topTex(x1,y1,x2,y2,h,material,yb=0){const side=mat('#5b8f47');const m=new THREE.Mesh(new THREE.BoxGeometry(x2-x1,h,y2-y1),[side,side,material,side,side,side]);m.position.set(wx((x1+x2)/2),yb+h/2,wz((y1+y2)/2));m.receiveShadow=true;scene.add(m);return m}
+
+// suelo, calles y áreas
+const g0=new THREE.Mesh(new THREE.PlaneGeometry(4000,4000),mat('#cfd6c6'));g0.rotation.x=-Math.PI/2;g0.position.y=-1.2;g0.receiveShadow=true;scene.add(g0);
+flat(CAMPUS,'#e6e5de',0.05);
+flat([[400,40],[778,40],[786,600],[700,600],[700,470],[560,300],[520,290],[505,215],[410,210]].map(p=>[sc(p[0]),sc(p[1])]),'#dcc6a0',0.15);
+function road(x1,y1,x2,y2,wd){const L=Math.hypot(x2-x1,y2-y1);const m=new THREE.Mesh(new THREE.BoxGeometry(L,1,wd),mat('#80858a'));m.position.set(wx((x1+x2)/2),-0.4,wz((y1+y2)/2));m.rotation.y=-Math.atan2(y2-y1,x2-x1);m.receiveShadow=true;scene.add(m)}
+road(sc(10),-300,sc(10),1200,26);road(sc(-40),sc(505),sc(560),sc(712),34);road(sc(10),sc(32),sc(788),sc(32),14);road(sc(788),sc(32),sc(788),sc(680),14);road(sc(160),sc(38),sc(160),sc(512),11);
+const GREENS=[[165,160,205,300],[330,448,505,505],[545,420,600,470],[595,460,710,540],[500,480,545,520],[230,595,300,640],[700,470,738,585]].map(g=>g.map(sc));
+GREENS.forEach(g=>box(g[0],g[1],g[2],g[3],1,'#8fc477',0,false));
+// canchas
+function fieldMat(w,h,kind){return texMat((x,W2,H2)=>{x.fillStyle='#6fb556';x.fillRect(0,0,W2,H2);x.strokeStyle='#f4f8f0';x.lineWidth=3;x.strokeRect(4,4,W2-8,H2-8);
+  if(kind==='fa'){for(let y=H2*0.1;y<=H2*0.9;y+=H2*0.04){x.beginPath();x.moveTo(8,y);x.lineTo(W2-8,y);x.stroke()}x.fillStyle='#2c5f2a';x.fillRect(5,5,W2-10,H2*0.1-5);x.fillRect(5,H2*0.9,W2-10,H2*0.1-5)}
+  else{x.beginPath();x.moveTo(4,H2/2);x.lineTo(W2-4,H2/2);x.stroke();x.beginPath();x.arc(W2/2,H2/2,Math.min(W2,H2)*0.12,0,7);x.stroke();x.strokeRect(W2*0.25,4,W2*0.5,H2*0.12);x.strokeRect(W2*0.25,H2*0.88-4,W2*0.5,H2*0.12)}
+},Math.round(256*w/Math.max(w,h)),Math.round(256*h/Math.max(w,h)))}
+FIELDS.forEach(f=>{
+  if(f.k==='base'){const hx=f.x2-4,hy=f.y2-4;const g=new THREE.CircleGeometry(122,32,Math.PI/2,Math.PI/2);g.rotateX(-Math.PI/2);const m=new THREE.Mesh(g,mat('#6fb556'));m.position.set(wx(hx),0.9,wz(hy));m.receiveShadow=true;scene.add(m);
+    const d=new THREE.Mesh(new THREE.BoxGeometry(34,0.6,34),mat('#c99a63'));d.position.set(wx(hx-24),1.1,wz(hy-24));d.rotation.y=Math.PI/4;scene.add(d);return}
+  topTex(f.x1,f.y1,f.x2,f.y2,1.2,fieldMat(f.x2-f.x1,f.y2-f.y1,'soc'));
+});
+// estacionamientos
+const parkMat=(w,h)=>texMat((x,W2,H2)=>{x.fillStyle='#6c716e';x.fillRect(0,0,W2,H2);x.strokeStyle='#ecece6';x.lineWidth=2;const step=W2/(w/12);for(let i=0;i<W2;i+=step){x.beginPath();x.moveTo(i,H2*0.08);x.lineTo(i,H2*0.42);x.moveTo(i,H2*0.58);x.lineTo(i,H2*0.92);x.stroke()}},256,Math.max(32,Math.round(256*h/w)));
+const pickables=[],LABELS=[];
+PLACES.forEach(p=>{
+  const w=p.x2-p.x1,h=p.y2-p.y1,cx=(p.x1+p.x2)/2,cy=(p.y1+p.y2)/2;
+  if(p.cat==='park'){const gm=mat('#6c716e');const m=new THREE.Mesh(new THREE.BoxGeometry(w,1,h),[gm,gm,parkMat(w,h),gm,gm,gm]);m.position.set(wx(cx),0.6,wz(cy));m.receiveShadow=true;m.userData.id=p.id;scene.add(m);pickables.push(m);p.top=2;
+    if(p.id==='P1'){ // techumbres del estacionamiento techado
+      for(let i=0;i<4;i++){const y=p.y1+8+i*(h-16)/4;const r=box(p.x1+4,y,p.x2-4,y+14,1.5,'#3d4a52',9);r.userData.id=p.id;pickables.push(r)}}
+    return}
+  if(p.id==='25'){const f=topTex(p.x1,p.y1,p.x2,p.y2,1.2,fieldMat(w,h,'fa'));f.userData.id='25';pickables.push(f);
+    const st=box(p.x1-22,p.y1+30,p.x1-4,p.y2-30,10,'#d9d6cc');st.userData.id='25';pickables.push(st);
+    const tr=box(p.x1-22,p.y1+30,p.x1-12,p.y2-30,4,'#b7b3a8',10);tr.userData.id='25';pickables.push(tr);p.top=16;return}
+  const H=HEIGHT[p.num]||12,col=CATCOL[p.cat];
+  if(p.id==='26'){ // CEID en arco
+    const R=h/2,ox=p.x1+R,oy=cy,r=R-30,pts=[];
+    for(let a=90;a<=270;a+=6)pts.push([ox+R*Math.cos(a*Math.PI/180),oy+R*Math.sin(a*Math.PI/180)]);
+    for(let a=270;a>=90;a-=6)pts.push([ox+r*Math.cos(a*Math.PI/180),oy+r*Math.sin(a*Math.PI/180)]);
+    const shape=new THREE.Shape(pts.map(([x,z])=>new THREE.Vector2(wx(x),-wz(z))));
+    const body=new THREE.Mesh(new THREE.ExtrudeGeometry(shape,{depth:H,bevelEnabled:false}),mat('#f3f1ea'));body.geometry.rotateX(-Math.PI/2);body.castShadow=body.receiveShadow=true;body.userData.id=p.id;scene.add(body);pickables.push(body);
+    const roof=new THREE.Mesh(new THREE.ExtrudeGeometry(shape,{depth:2.5,bevelEnabled:false}),mat(col));roof.geometry.rotateX(-Math.PI/2);roof.position.y=H;roof.userData.id=p.id;scene.add(roof);pickables.push(roof);
+    for(let y=7;y<H-3;y+=8){const band=new THREE.Mesh(new THREE.ExtrudeGeometry(shape,{depth:2,bevelEnabled:false}),mat('#7d98ad'));band.geometry.rotateX(-Math.PI/2);band.scale.set(1.004,1,1.004);band.position.set(wx(cx)*-0.004,y,wz(cy)*-0.004);scene.add(band)}
+    p.top=H+3;p.lx=ox-R+15;p.ly=oy;return}
+  const body=box(p.x1,p.y1,p.x2,p.y2,H,'#f3f1ea');body.userData.id=p.id;pickables.push(body);
+  const roof=box(p.x1+1,p.y1+1,p.x2-1,p.y2-1,2.5,col,H);roof.userData.id=p.id;pickables.push(roof);
+  for(let y=7;y<H-3;y+=8)box(p.x1-0.3,p.y1-0.3,p.x2+0.3,p.y2+0.3,2,'#7d98ad',y,false);
+  p.top=H+3;
+});
+OTHER.forEach(o=>box(o.x1,o.y1,o.x2,o.y2,10,'#d5d6d2'));
+// árboles
+let seed=11;const rnd=()=>(seed=(seed*9301+49297)%233280)/233280;
+const trunkG=new THREE.CylinderGeometry(1,1.3,6,6),leafG=new THREE.SphereGeometry(6,8,6),trunkM=mat('#7a5a3a'),leafM=mat('#4f9a45');
+GREENS.forEach(g=>{const n=Math.round((g[2]-g[0])*(g[3]-g[1])/650);for(let i=0;i<n;i++){const x=g[0]+6+rnd()*(g[2]-g[0]-12),y=g[1]+6+rnd()*(g[3]-g[1]-12),s=0.7+rnd()*0.6;
+  const t=new THREE.Mesh(trunkG,trunkM);t.position.set(wx(x),3,wz(y));t.castShadow=true;scene.add(t);const l=new THREE.Mesh(leafG,leafM);l.scale.setScalar(s);l.position.set(wx(x),8+4*s,wz(y));l.castShadow=true;scene.add(l)}});
+// etiquetas
+function label(text,big){const c=document.createElement('canvas'),x=c.getContext('2d');const font='700 44px "Barlow Condensed", "Arial Narrow", sans-serif';x.font=font;const w=Math.ceil(x.measureText(text).width)+40;c.width=w;c.height=64;
+  x.font=font;x.fillStyle='rgba(24,32,28,.86)';x.beginPath();if(x.roundRect)x.roundRect(0,4,w,56,28);else x.rect(0,4,w,56);x.fill();x.fillStyle='#fff';x.textBaseline='middle';x.fillText(text,20,34);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false}));const k=big?0.3:0.22;s.scale.set(w*k,64*k,1);s.renderOrder=10;s.userData.base=[w*k,64*k];return s}
+function buildLabels(){LABELS.forEach(s=>scene.remove(s));LABELS.length=0;
+  PLACES.filter(p=>typeof p.num==='number').forEach(p=>{const t=p.small?String(p.num):`${p.num} · ${p.lines.join(' ')}`;const s=label(t,!p.small);s.position.set(wx(p.lx??(p.x1+p.x2)/2),p.top+9,wz(p.ly??(p.y1+p.y2)/2));scene.add(s);LABELS.push(s)})}
+buildLabels();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(buildLabels);
+
+// alumno, destino y ruta
+const hero=new THREE.Group();const heroM=mat('#2f6fde');
+const b1=new THREE.Mesh(new THREE.CylinderGeometry(3.2,4,8,12),heroM);b1.position.y=6;b1.castShadow=true;hero.add(b1);
+const head=new THREE.Mesh(new THREE.SphereGeometry(4,16,12),mat('#f2c9a0'));head.position.y=13.5;head.castShadow=true;hero.add(head);
+const cap=new THREE.Mesh(new THREE.SphereGeometry(4.3,16,8,0,Math.PI*2,0,Math.PI/2),heroM);cap.position.y=14.2;hero.add(cap);
+const visor=new THREE.Mesh(new THREE.BoxGeometry(5,0.8,3),heroM);visor.position.set(0,14.4,3.6);hero.add(visor);
+const legL=new THREE.Mesh(new THREE.BoxGeometry(1.8,3,1.8),mat('#33363a'));legL.position.set(-1.6,1.5,0);hero.add(legL);const legR=legL.clone();legR.position.x=1.6;hero.add(legR);
+const ring=new THREE.Mesh(new THREE.RingGeometry(6,8,32),new THREE.MeshBasicMaterial({color:'#2f6fde',transparent:true,opacity:.55}));ring.rotation.x=-Math.PI/2;ring.position.y=1.2;hero.add(ring);
+const accDisc=new THREE.Mesh(new THREE.CircleGeometry(1,40),new THREE.MeshBasicMaterial({color:'#2f6fde',transparent:true,opacity:.14,depthWrite:false}));accDisc.rotation.x=-Math.PI/2;accDisc.position.y=1.1;accDisc.visible=false;hero.add(accDisc);
+scene.add(hero);
+const gem=new THREE.Mesh(new THREE.OctahedronGeometry(7),new THREE.MeshLambertMaterial({color:'#ff6a1a',emissive:'#7a2a00'}));gem.castShadow=true;scene.add(gem);
+const calibGroup=new THREE.Group();scene.add(calibGroup);
+
+// ---------- estado ----------
+let me=[438,762],dest=byId['8'],peek=null,route=null,routeMesh=null,walking=null,live=false,lastFix=null,follow=true,arrivedFor=null;
+const sel=document.getElementById('dest'),sumEl=document.getElementById('sum'),walkBtn=document.getElementById('walk'),tag=document.getElementById('tag');
+const label2=p=>(typeof p.num==='number'?p.num+'. ':'')+p.name;
+sel.innerHTML='<optgroup label="Edificios">'+PLACES.filter(p=>p.cat!=='park').map(p=>`<option value="${p.id}">${label2(p)}</option>`).join('')+'</optgroup><optgroup label="Estacionamientos">'+PLACES.filter(p=>p.cat==='park').map(p=>`<option value="${p.id}">${p.name}</option>`).join('')+'</optgroup>';
+function setHero(){hero.position.set(wx(me[0]),0.8,wz(me[1]))}
+function update(){
+  setHero();sel.value=dest.id;
+  const w=whereAmI(me);document.getElementById('here').textContent=w.text;
+  if(routeMesh){scene.remove(routeMesh);routeMesh.geometry.dispose();routeMesh=null}
+  if(peek)document.getElementById('popDist').textContent=peekDistance();
+  const arrived=(w.place&&w.place.id===dest.id)||rectDist(me[0],me[1],dest)*M<6;
+  if(arrived){route=null;gem.visible=false;sumEl.className='sum arrived';sumEl.innerHTML=`<b>Llegaste</b>Estás en ${label2(dest)}.`;walkBtn.disabled=true;
+    if(live&&arrivedFor!==dest.id){arrivedFor=dest.id;try{navigator.vibrate&&navigator.vibrate([120,80,120])}catch(e){}}return}
+  route=findRoute(me,dest);
+  if(!route){sumEl.className='sum';sumEl.textContent='No encontré un camino desde aquí.';walkBtn.disabled=true;gem.visible=false;return}
+  const pts=route.path.map(p=>new THREE.Vector3(wx(p[0]),2.4,wz(p[1])));const path=new THREE.CurvePath();
+  for(let i=1;i<pts.length;i++)if(pts[i].distanceTo(pts[i-1])>0.01)path.add(new THREE.LineCurve3(pts[i-1],pts[i]));
+  if(path.curves.length){routeMesh=new THREE.Mesh(new THREE.TubeGeometry(path,Math.max(8,pts.length*14),2.2,6,false),new THREE.MeshLambertMaterial({color:'#ff6a1a',emissive:'#802800'}));scene.add(routeMesh)}
+  const end=pts[pts.length-1];gem.position.x=end.x;gem.position.z=end.z;gem.visible=true;
+  const min=Math.max(1,Math.ceil(route.meters/1.25/60));
+  sumEl.className='sum';sumEl.innerHTML=`<b>${min} min</b>≈${Math.round(route.meters/5)*5} m hasta ${label2(dest)}`;walkBtn.disabled=live;
+}
+walkBtn.onclick=()=>{if(!route||live)return;const pts=route.path;let total=0;const segs=[];for(let i=1;i<pts.length;i++){const l=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]);segs.push([pts[i-1],pts[i],total,l]);total+=l}walking={segs,total,t:0};follow=true};
+sel.onchange=()=>{dest=byId[sel.value];walking=null;arrivedFor=null;update()};
+
+// ---------- tarjeta con foto ----------
+const pop=document.getElementById('pop'),popImg=document.getElementById('popImg'),popPh=document.getElementById('popPh');
+function peekDistance(){if(!peek)return'';const r=findRoute(me,peek);if(!r)return'';return `≈${Math.round(r.meters/5)*5} m · ${Math.max(1,Math.ceil(r.meters/1.25/60))} min a pie`}
+function openPopup(p){
+  peek=p;pop.hidden=false;
+  document.getElementById('popName').textContent=label2(p);
+  const c=document.getElementById('popCat');c.textContent=CATNAME[p.cat];c.style.color=`var(--c-${p.cat})`;
+  document.getElementById('popN').textContent=typeof p.num==='number'?p.num:'P';
+  document.getElementById('popPhoto').style.background=`color-mix(in srgb, var(--c-${p.cat}) 18%, #eef1ee)`;
+  popImg.hidden=true;popPh.hidden=false;
+  popImg.onload=()=>{popImg.hidden=false;popPh.hidden=true};popImg.onerror=()=>{popImg.hidden=true;popPh.hidden=false};
+  popImg.alt='Foto de '+p.name;popImg.src='fotos/'+p.id+'.jpg';
+  document.getElementById('popDist').textContent=peekDistance();
+}
+function closePopup(){peek=null;pop.hidden=true}
+document.getElementById('popClose').onclick=closePopup;
+document.getElementById('popGo').onclick=()=>{dest=peek;arrivedFor=null;walking=null;closePopup();update()};
+
+// ---------- GPS y calibración (compartida con la vista 2D) ----------
+let pickMode=false,pendingFix=null,watchId=null;
+const gpsMsg=document.getElementById('gpsMsg'),gpsBtn=document.getElementById('gpsBtn'),calPanel=document.getElementById('calib'),calMsg=document.getElementById('calMsg');
+function setTag(t,cls){tag.textContent=t;tag.className='tag'+(cls?' '+cls:'')}
+function drawCalib(){while(calibGroup.children.length)calibGroup.remove(calibGroup.children[0]);if(calPanel.hidden)return;
+  calib.forEach((c,i)=>{const m=new THREE.Mesh(new THREE.CylinderGeometry(4,4,14,16),mat('#1f6f8b'));m.position.set(wx(c.x),7,wz(c.y));calibGroup.add(m);const s=label(String(i+1),false);s.position.set(wx(c.x),24,wz(c.y));calibGroup.add(s)})}
+function calText(){const n=calib.length;
+  if(pickMode)return '<b>Ahora toca en el mapa el lugar exacto donde estás parado.</b>';
+  return `Puntos guardados: <b>${n}</b>. `+(n<2?'Párate en un lugar fácil de ubicar (esquina de edificio o entrada), espera a que la precisión baje de 10 m y toca "Marcar dónde estoy".':n<3?'Ya funciona. Un tercer punto lejos de los otros dos mejora la precisión.':'Calibración lista. Agrega más puntos si te ves desviado.')}
+function refreshCal(){calMsg.innerHTML=calText();drawCalib()}
+function onFix(pos){
+  lastFix={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy,t:Date.now()};
+  const accTxt=`±${Math.round(lastFix.acc)} m`;
+  if(!xf){setTag('GPS activo · falta calibrar','warn');gpsMsg.innerHTML=`GPS recibido (precisión ${accTxt}). Calibra el mapa para que el alumno siga tu posición.`;return}
+  const[x,y]=xf(...toLocal(lastFix.lat,lastFix.lng));
+  me=[Math.max(-100,Math.min(W+100,x)),Math.max(-100,Math.min(H+100,y))];
+  const off=!inPoly(x,y,CAMPUS);
+  setTag(off?'Estás fuera del campus':'En vivo · precisión '+accTxt,off?'warn':'live');
+  gpsMsg.innerHTML=`Siguiendo tu posición (precisión ${accTxt}). La ruta se recalcula mientras caminas.`;
+  accDisc.visible=true;accDisc.scale.setScalar(Math.min(150,lastFix.acc/M));
+  update();
+}
+function onErr(e){gpsMsg.textContent=e.code===1?'No hay permiso de ubicación. Actívalo para este sitio en tu navegador.':e.code===3?'El GPS tardó demasiado. Sal al aire libre e inténtalo de nuevo.':'No se pudo obtener la ubicación.';setTag('GPS no disponible','warn');stopGps()}
+function startGps(){
+  if(!('geolocation' in navigator)){gpsMsg.textContent='Este navegador no tiene GPS disponible.';return}
+  live=true;walking=null;follow=true;gpsBtn.textContent='Detener GPS';gpsBtn.classList.add('on');setTag('Buscando señal GPS…');gpsMsg.textContent='Buscando señal… al aire libre tarda unos segundos.';walkBtn.disabled=true;
+  try{watchId=navigator.geolocation.watchPosition(onFix,onErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000})}catch(e){onErr({code:1})}
+}
+function stopGps(){if(watchId!==null)try{navigator.geolocation.clearWatch(watchId)}catch(e){}watchId=null;live=false;accDisc.visible=false;gpsBtn.textContent='Usar mi GPS';gpsBtn.classList.remove('on');if(!tag.classList.contains('warn'))setTag('Simulación: toca el suelo para moverte');update()}
+gpsBtn.onclick=()=>live?stopGps():startGps();
+document.getElementById('calBtn').onclick=()=>{calPanel.hidden=!calPanel.hidden;if(!calPanel.hidden&&!live)startGps();pickMode=false;refreshCal()};
+document.getElementById('calMark').onclick=()=>{if(!lastFix||Date.now()-lastFix.t>15000){calMsg.innerHTML='<b>Todavía no hay señal GPS.</b> Espera a que aparezca la precisión arriba.';return}pendingFix={...lastFix};pickMode=true;refreshCal()};
+document.getElementById('calClear').onclick=()=>{calib=[];store.set('cetys-calib',calib);M=0.62;buildXf();pickMode=false;refreshCal();update()};
+document.getElementById('calDone').onclick=()=>{calPanel.hidden=true;pickMode=false;refreshCal()};
+buildXf();
+
+// ---------- interacción ----------
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();const ptrs=new Map();let drag=null,pinch=0,pinchA=0;
+stage.addEventListener('contextmenu',e=>e.preventDefault());
+function ground(cx,cy){ndc.set(cx/innerWidth*2-1,-(cy/innerHeight)*2+1);ray.setFromCamera(ndc,cam);const t=-ray.ray.origin.y/ray.ray.direction.y;return ray.ray.origin.clone().addScaledVector(ray.ray.direction,t)}
+stage.addEventListener('pointerdown',e=>{stage.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(ptrs.size===1)drag={x:e.clientX,y:e.clientY,g:ground(e.clientX,e.clientY),t0:target.clone(),moved:false,rot:e.button===2||e.shiftKey,yaw0:yawTarget};
+  else if(ptrs.size===2){const[a,b]=[...ptrs.values()];pinch=Math.hypot(a[0]-b[0],a[1]-b[1]);pinchA=Math.atan2(b[1]-a[1],b[0]-a[0]);drag=null}});
+stage.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(drag&&drag.rot){if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>6)drag.moved=true;yawTarget=yaw=drag.yaw0-(e.clientX-drag.x)*0.008}
+  else if(drag){if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>6){drag.moved=true;follow=false}if(drag.moved){target.copy(drag.t0);placeCam();const g=ground(e.clientX,e.clientY);target.copy(drag.t0).sub(g.sub(drag.g));target.y=0}}
+  else if(ptrs.size===2){const[a,b]=[...ptrs.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),ang=Math.atan2(b[1]-a[1],b[0]-a[0]);if(pinch)zoom=Math.max(.9,Math.min(7,zoom*d/pinch));pinch=d;
+    let da=ang-pinchA;if(da>Math.PI)da-=2*Math.PI;if(da<-Math.PI)da+=2*Math.PI;yawTarget=yaw=yawTarget-da;pinchA=ang}});
+function endP(e){
+  if(drag&&!drag.moved&&!drag.rot){
+    if(pickMode){const g=ground(e.clientX,e.clientY);calib.push({lat:pendingFix.lat,lng:pendingFix.lng,acc:pendingFix.acc,x:+(g.x+CX).toFixed(1),y:+(g.z+CZ).toFixed(1)});store.set('cetys-calib',calib);pickMode=false;buildXf();refreshCal();
+      if(xf&&lastFix)onFix({coords:{latitude:lastFix.lat,longitude:lastFix.lng,accuracy:lastFix.acc}})}
+    else{ndc.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);ray.setFromCamera(ndc,cam);const hit=ray.intersectObjects(pickables)[0];
+      if(hit)openPopup(byId[hit.object.userData.id]);
+      else if(peek)closePopup();
+      else if(!live){const g=ground(e.clientX,e.clientY),x=g.x+CX,y=g.z+CZ;if(inPoly(x,y,CAMPUS)){me=[x,y];walking=null;arrivedFor=null;update()}}}}
+  ptrs.delete(e.pointerId);if(!ptrs.size){drag=null;pinch=0}}
+stage.addEventListener('pointerup',endP);stage.addEventListener('pointercancel',endP);
+stage.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.9,Math.min(7,zoom*(e.deltaY<0?1.12:1/1.12)))},{passive:false});
+document.getElementById('zin').onclick=()=>zoom=Math.min(7,zoom*1.25);
+document.getElementById('zout').onclick=()=>zoom=Math.max(.9,zoom/1.25);
+document.getElementById('zme').onclick=()=>{follow=true;zoom=Math.max(zoom,2.6)};
+document.getElementById('rotL').onclick=()=>yawTarget-=Math.PI/2;
+document.getElementById('rotR').onclick=()=>yawTarget+=Math.PI/2;
+function resize(){renderer.setSize(innerWidth,innerHeight);placeCam()}addEventListener('resize',resize);
+
+// ---------- animación ----------
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;let last=performance.now();const tmp=new THREE.Vector3();
+function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;
+  yaw+=(yawTarget-yaw)*Math.min(1,dt*8);
+  if(walking){walking.t+=dt*80;const t=Math.min(walking.t,walking.total);const s=walking.segs.find(s=>t<=s[2]+s[3])||walking.segs[walking.segs.length-1];const f=s[3]?(t-s[2])/s[3]:1;
+    me=[s[0][0]+(s[1][0]-s[0][0])*f,s[0][1]+(s[1][1]-s[0][1])*f];setHero();hero.rotation.y=Math.atan2(s[1][0]-s[0][0],s[1][1]-s[0][1]);
+    const sw=Math.sin(now/70)*0.6;legL.position.z=sw*1.5;legR.position.z=-sw*1.5;
+    if(walking.t>=walking.total){walking=null;legL.position.z=legR.position.z=0;update()}}
+  if(follow){tmp.set(hero.position.x,0,hero.position.z);target.lerp(tmp,Math.min(1,dt*(walking||live?2.5:6)));if(!walking&&!live&&target.distanceTo(tmp)<0.5)follow=false}
+  if(!reduce){gem.rotation.y+=dt*2;gem.position.y=20+Math.sin(now/300)*3;head.position.y=13.5+(walking?Math.abs(Math.sin(now/90)):0)}else gem.position.y=20;
+  placeCam();renderer.render(scene,cam);requestAnimationFrame(loop)}
+resize();update();refreshCal();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
